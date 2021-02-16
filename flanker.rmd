@@ -398,7 +398,7 @@ p5<- p4 + theme_bw() +
 
 y<-select(x,id)
 
-plasmids<-read_tsv('~/oxa48/plasmids') %>% filter(id >=80 & cov >= 80) %>% select(guuid,gene)
+plasmids<-read_tsv('~/oxa/plasmids') %>% filter(id >=80 & cov >= 80) %>% select(guuid,gene)
 pOXA<-filter(plasmids, gene =='IncL/M(pOXA-48)_1_pOXA-48')
 
 y$`IncL/M(pOXA-48)`<-ifelse(y$id %in% pOXA$guuid,'Present','Absent' )
