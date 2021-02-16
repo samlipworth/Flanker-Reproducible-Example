@@ -1,0 +1,549 @@
+---
+title: "Flanker"
+author: "Sam Lipworth"
+date: "26/01/2021"
+output: html_document
+---
+
+
+```{r libraries echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+library(tidyverse)
+library(ape)
+library(igraph)
+library(phytools)
+library(ggtree)
+
+```
+
+```{r}
+#here we take the output from Flanker. the 'all' file is created simply with cat [outprefix e.g. -o out]* | sed '/assembly/d' > all 
+#The add the headers isolate,group to the 'all' csv
+flanker_output<-read_csv('./kpc/all')
+
+#here we just parse some messy filenames - you might need to adjust or be able to omit this
+flanker_output<-flanker_output %>% 
+  mutate(window = map_chr(isolate, function(s) rev(strsplit(s, "_")[[1]])[3]))
+
+flanker_output$window<-as.numeric(flanker_output$window)
+x<-unique(flanker_output$window) %>% sort()
+flanker_output<-flanker_output %>% 
+  mutate(guuid = map_chr(isolate, function(s) rev(strsplit(s, "_")[[1]])[6]))
+
+flanker_output<-flanker_output %>% 
+  mutate(gene = map_chr(isolate, function(s) rev(strsplit(s, "_")[[1]])[5]))
+
+gene<-select(flanker_output,guuid,gene)
+flanker_output<-select(flanker_output,guuid,window,group)
+#go from long to wide
+flanker_output<-flanker_output %>% pivot_wider(id_cols = guuid,names_from=window,values_from=group,names_sort=TRUE)
+
+#give an ID based on the pattern over all 72 windows (7200/100)
+flanker_output$ID<-flanker_output %>% group_indices(flanker_output[,2:73])
+
+#take the ids and add them back to the long format for plotting
+test<-select(flanker_output,guuid,ID) %>% distinct()
+
+flanker_output<-select(flanker_output,-ID)
+flanker_output<-flanker_output %>% pivot_longer(-guuid,names_to = "window",values_to="group")
+
+flanker_output<-left_join(flanker_output,test,by=c("guuid"="guuid"))
+
+
+flanker_output$window<-as.numeric(flanker_output$window)
+flanker_output<-left_join(flanker_output,gene,by=c("guuid"="guuid"))
+kpc_store<-flanker_output # we'll use this later
+```
+
+```{r}
+#read in a mashtree of plasmid fastas e.g. mashtree *_plasmid.fasta --outtree tree.tree
+tree<-read.tree('./kpc/tree.tree')
+tree<-midpoint.root(tree)
+x<-data.frame(tree$tip.label)
+#sort out messy names again
+x<-x %>% 
+  mutate(id = map_chr(tree.tip.label, function(s) rev(strsplit(s, "_")[[1]])[1]))
+
+tree$tip.label<-x$id
+x<-left_join(x,gene,by=c("id"="guuid"))
+x<-select(x,id,gene) %>% distinct()
+
+g<-ggtree(tree)
+p1<- g %<+% x + geom_tippoint(aes(color=gene)) + geom_tiplab()
+
+#here is our first plot of the flankergram and tree - we colour the tiplabels by gene 
+
+px<-p1 + geom_facet(panel="flankergram", data=flanker_output,aes(x=window,fill=group), geom=geom_tile) 
+names(flanker_output)<-c('id','window','group','cluster','gene')
+
+
+#read in a file with mlst data
+mlst<-read_csv('~/kpc/mlst.csv') #%>% select(guuid,mlst)
+
+
+```
+
+```{r}
+#all .gbk files in one directory
+#n.b. if you make these with prokka, you MUST use the --compliant option
+filenames<-list.files("./kpc/",pattern="*.gbk",full.names = TRUE)
+filenames<-str_replace_all(filenames,'//','/')
+files<-as.list(filenames)
+
+library(genbankr)
+files2<-lapply(files, readGenBank)
+
+#here we parse prokka genbank files into a nice dataframe for plotting
+for (i in 1:length(files2)){
+  assign(paste(paste("df", i, sep="_"), "summary", sep="."), data.frame(genes(files2[[i]])))
+  t<-paste(paste("df", i, sep="_"), "summary", sep=".")
+  df<-get(t)
+  df$seqnames<-paste('g',i,sep='')
+  assign(paste(paste("df", i, sep="_"), "summary", sep="."), df)
+}
+
+files2<-lapply(ls(pattern='df_*'), get)
+
+gggene_configure<-function(seqname){
+  seqname<-select(seqname,seqnames,gene,start,end,strand)
+  seqname$gene<-ifelse(is.na(seqname$gene),'hypothetical',seqname$gene)
+  seqname$strand<-ifelse(seqname$strand=='+','forward','reverse')
+  seqname$direction<-ifelse(seqname$strand =='forward',1,-1)
+
+  return(seqname)
+  
+}
+
+dfs<-lapply(ls(pattern = 'df_'),get)
+
+
+all<-bind_rows(dfs)
+all2<-gggene_configure(all)
+all<-all2
+all<-select(all,seqnames,gene,start,end,strand,direction)
+names(all)<-c('molecule','gene','start','end','strand','direction')
+filenames<-data.frame(filenames)
+filenames<-filenames %>% 
+  mutate(isolate = map_chr(filenames, function(s) rev(strsplit(s, "_")[[1]])[6])) 
+filenames$isolate<-str_replace_all(filenames$isolate,'.gbk','')
+filenames<-select(filenames,-filenames)
+filenames$molecule<-paste('g',1:nrow(filenames),sep = '')
+
+filenames$isolate<-str_replace_all(filenames$isolate,'^.*/','')
+
+all<-left_join(all,filenames,by=c("molecule"="molecule"))
+all<-select(all,isolate,gene,start,end,strand,direction)
+names(all)<-c('id','gene','start','end','strand','direction')
+
+FP<-filter(flanker_output,window==7200) %>% distinct() %>% select(guuid,ID)
+all<-left_join(all,FP,by=c("id"="guuid"))
+all$gene<-ifelse(all$gene=='bla','bla',paste('FP',all$cluster,sep=''))
+
+
+library(gggenes)
+#let's plot the gene alignment - check it looks OK
+g<-ggplot(all,aes(xmin=start,xmax=end,y=id,fill=gene,forward=direction)) +
+  geom_gene_arrow() + theme_genes() 
+
+
+
+library(RColorBrewer)
+#extend the Set1 colour pallete
+mycolors <- colorRampPalette(brewer.pal(9, "Set1"))(10)
+
+p<-ggtree(tree) +geom_facet(panel = 'Alignment',mapping= aes(xmin=start,xmax=end,fill=gene,forward=direction),
+                     data = all, geom = geom_motif, on = 'bla') + scale_fill_manual(values = mycolors,breaks=c("FP1","FP2","FP3","FP4","FP5","FP6","FP7","FP8","FP9"),name='Flank Pattern')
+
+library(ggnewscale)
+p1<-p +new_scale_fill()
+
+m<-mlst %>% group_by(mlst) %>% count() %>% filter(n>1)
+mlst$mlst<-ifelse(mlst$mlst %in% m$mlst, mlst$mlst,'other')
+
+mycolors <- colorRampPalette(brewer.pal(9, "Set1"))(10)
+
+p2<-facet_plot(p1,panel="MLST",data=mlst,geom=geom_tile,aes(x=1,fill=mlst)) + scale_fill_manual(values=mycolors,name='MLST')
+
+
+z<-p2 + new_scale_fill()
+flanker_output$window<-flanker_output$window * -1
+p4<-facet_plot(z, panel="Flankergram",data=flanker_output,geom=geom_tile, aes(x=window,fill=group)) + scale_fill_viridis_c(name='Window Cluster')
+
+y<-select(x,id)
+
+plasmids<-read_tsv('./kpc/plasmids') %>% filter(id >=80 & cov >= 80) %>% select(guuid,gene)
+plasmids$Present='Present'
+
+c<-plasmids %>% group_by(gene) %>% count() %>% filter(n >=4)
+plasmids<-filter(plasmids,gene %in% c$gene)
+
+p4<-p4 + new_scale_fill()
+
+plasmids$guuid<-str_replace_all(plasmids$guuid,'^.*_','')
+
+names(plasmids)<-c('id','gene','present')
+plasmids<-left_join(y,plasmids,by=c("id"="id"))
+
+plasmids<-pivot_wider(plasmids,names_from  = gene,id_cols  = id,values_from = present)
+plasmids$`IncFIB(pQil)_1_pQil`<-ifelse(is.na(plasmids$`IncFIB(pQil)_1_pQil`),'absent','present')
+plasmids$IncFII_1_pKP91<-ifelse(is.na(plasmids$IncFII_1_pKP91),'absent','present')
+plasmids$`IncFIB(K)_1_Kpn3`<-ifelse(is.na(plasmids$`IncFIB(K)_1_Kpn3`),'absent','present')
+plasmids$IncX3_1<-ifelse(is.na(plasmids$IncX3_1),'absent','present')
+
+
+t<-c( "#FFFFFF", "#000000")
+
+p5<-facet_plot(p4, panel = "FIB(pQil)-Type",data=plasmids,geom=geom_tile,aes(x=1,fill=`IncFIB(pQil)_1_pQil`)) + scale_fill_manual(values=t)
+
+p5<-facet_plot(p5, panel = "FII(pKP91)-Type",data=plasmids,geom=geom_tile,aes(x=1,fill=`IncFII_1_pKP91`)) + scale_fill_manual(values=t)
+
+p5<-facet_plot(p5, panel = "FIB(Kpn3)-Type",data=plasmids,geom=geom_tile,aes(x=1,fill=`IncFIB(K)_1_Kpn3`)) + scale_fill_manual(values=t,name="Plasmid Present?")
+
+gene_kpc<-read_tsv('./kpc/KPC_presence')
+
+t<-c("#41963E" ,"#792194")
+gene_kpc<-gene_kpc %>% 
+  mutate(id = map_chr(id, function(s) rev(strsplit(s, "_")[[1]])[6]))
+
+p5<-p5 + new_scale_fill()
+p5<-facet_plot(p5, panel = "Gene",data=gene_kpc,geom=geom_tile,aes(x=1,fill=gene)) + scale_fill_manual(values=t,name="Gene")
+
+
+#Here is Figure 3 from the manuscript!
+p5<- p5 + theme_bw() +
+  xlim_tree(0.08) +
+  xlim_expand(c(-5000,0),'Alignment') +
+  xlim_expand(c(-5000,0),'Flankergram') + 
+  theme(axis.text.y = element_blank(),axis.ticks.y = element_blank()) +
+  theme(strip.background =element_rect(fill="white"))+
+  theme(strip.text = element_text(colour = 'black')) +
+  theme(strip.text = element_text(size=16)) +
+  theme(axis.text.x = element_text(size=14)) +
+  theme(legend.text = element_text(size=16)) +
+  theme(legend.title = element_text(size=16))
+
+#We don't want all the panels to be the same size, so we do some adjusting here
+library(gtable)
+library(grid)
+
+#have to make mlst/flank panels smaller
+gt = ggplot_gtable(ggplot_build(p5))
+gtable_show_layout(gt) # will show you the layout - very handy function
+gt # see plot layout in table format
+gt$layout$l[grep('panel-1-2', gt$layout$name)] # you want to find the column specific to panel-2
+gt$widths[9] = 0.3*gt$widths[9] # in this case it was colmun 7 - reduce the width by a half
+gt$widths[13] = 0.3*gt$widths[11]
+gt$widths[15] = 0.3*gt$widths[15]
+gt$widths[17] = 0.3*gt$widths[17]
+gt$widths[19] = 0.3*gt$widths[19]
+
+grid.draw(gt) # plot with grid draw
+
+
+```
+
+```{r}
+#and we do the same thing (basically) all over again for OXA
+flanker_output<-read_csv('./oxa/all') 
+flanker_output<-flanker_output %>% mutate(window = map_chr(isolate, function(s) rev(strsplit(s, "_")[[1]])[3])) 
+flanker_output$window<-as.numeric(flanker_output$window) 
+
+x<-unique(flanker_output$window) %>% sort() 
+flanker_output<-flanker_output %>% mutate(guuid = map_chr(isolate, function(s) rev(strsplit(s, "_")[[1]])[6]))
+
+flanker_output<-flanker_output %>% mutate(gene = map_chr(isolate, function(s) rev(strsplit(s, "_")[[1]])[5])) 
+
+gene<-select(flanker_output,guuid,gene)
+flanker_output<-select(flanker_output,guuid,window,group) 
+flanker_output<-flanker_output %>% pivot_wider(id_cols = guuid,names_from=window,values_from=group,names_sort=TRUE) 
+
+#23 because in the paper the Flank Pattern is over 2200bp (first column is isolate name)
+flanker_output$ID<-flanker_output %>% group_indices(flanker_output[,2:23]) 
+test<-select(flanker_output,guuid,ID) %>% distinct() 
+
+flanker_output<-select(flanker_output,-ID) 
+flanker_output<-flanker_output %>% pivot_longer(-guuid,names_to = "window",values_to="group")
+
+flanker_output<-left_join(flanker_output,test,by=c("guuid"="guuid")) 
+flanker_output$window<-as.numeric(flanker_output$window) 
+flanker_output<-left_join(flanker_output,gene,by=c("guuid"="guuid")) 
+
+
+#just check this looks sensible
+p0<-ggplot(flanker_output) + aes(x=window,y=interaction(guuid,ID),fill=group) +geom_tile() + theme_minimal() + facet_wrap(~gene) 
+
+```
+
+```{r}
+#here should be your mashtree of plasmids
+tree<-read.tree('./oxa/tree.tree')
+tree<-midpoint.root(tree)
+x<-data.frame(tree$tip.label)
+
+x<-x %>% 
+  mutate(id = map_chr(tree.tip.label, function(s) rev(strsplit(s, "_")[[1]])[1]))
+
+tree$tip.label<-x$id
+
+y<-unique(flanker_output$guuid)
+pruned.tree<-drop.tip(tree,tree$tip.label[-match(y, tree$tip.label)])
+tree<-pruned.tree
+x<-left_join(x,gene,by=c("id"="guuid"))
+x<-select(x,id,gene) %>% distinct()
+
+g<-ggtree(tree)
+p1<- g %<+% x + geom_tippoint(aes(color=gene))
+
+names(flanker_output)<-c('id','window','group','cluster','gene')
+
+
+
+```
+
+```{r}
+#make sure all gbk files in your working directory
+filenames<-list.files("./oxa/",pattern="*.gbk",full.names = TRUE)
+filenames<-str_replace_all(filenames,'/home/sam/oxa48//','/home/sam/oxa48/')
+files<-as.list(filenames)
+
+library(genbankr)
+files2<-lapply(files, readGenBank)
+
+
+for (i in 1:length(files2)){
+  assign(paste(paste("df", i, sep="_"), "summary", sep="."), data.frame(genes(files2[[i]])))
+  t<-paste(paste("df", i, sep="_"), "summary", sep=".")
+  df<-get(t)
+  df$seqnames<-paste('g',i,sep='')
+  assign(paste(paste("df", i, sep="_"), "summary", sep="."), df)
+}
+
+files2<-lapply(ls(pattern='df_*'), get)
+
+gggene_configure<-function(seqname){
+  seqname<-select(seqname,seqnames,gene,start,end,strand)
+  seqname$gene<-ifelse(is.na(seqname$gene),'hypothetical',seqname$gene)
+  seqname$strand<-ifelse(seqname$strand=='+','forward','reverse')
+  seqname$direction<-ifelse(seqname$strand =='forward',1,-1)
+
+  return(seqname)
+  
+}
+
+dfs<-lapply(ls(pattern = 'df_'),get)
+
+
+all<-bind_rows(dfs)
+all2<-gggene_configure(all)
+all<-all2
+all<-select(all,seqnames,gene,start,end,strand,direction)
+names(all)<-c('molecule','gene','start','end','strand','direction')
+filenames<-data.frame(filenames)
+filenames<-filenames %>% 
+  mutate(isolate = map_chr(filenames, function(s) rev(strsplit(s, "_")[[1]])[6])) 
+filenames$isolate<-str_replace_all(filenames$isolate,'/home/sam/oxa48/','')
+#filenames$isolate<-str_replace_all(filenames$isolate,'.gbk','')
+filenames<-select(filenames,-filenames)
+filenames$molecule<-paste('g',1:nrow(filenames),sep = '')
+all<-left_join(all,filenames,by=c("molecule"="molecule"))
+all<-select(all,isolate,gene,start,end,strand,direction)
+names(all)<-c('id','gene','start','end','strand','direction')
+
+FP<-filter(flanker_output,window==5000) %>% select(id,cluster) %>% distinct()
+names(FP)<-c('id','Flank Pattern')
+all<-left_join(all,FP,by=c("id"="id"))
+all$gene<-ifelse(all$gene=='bla','blaKPC-2/3',paste('FP',all$`Flank Pattern`,sep=''))
+
+
+library(RColorBrewer)
+mycolors <- colorRampPalette(brewer.pal(9, "Set1"))(18)
+p<-ggtree(tree) +geom_facet(panel = 'Alignment',mapping= aes(xmin=start,xmax=end,fill=gene,forward=direction),data = all, geom = geom_motif, on = 'blaKPC-2/3') + scale_fill_manual(values=mycolors,breaks=c("FP1","FP2","FP3","FP3","FP5","FP6","FP7","FP8","FP9","FP10","FP11","FP12","FP13","FP14","FP15","FP16","FP17"),name="Flank Pattern")
+
+
+
+mlst<-read_csv('~/oxa48/mlst.csv')
+
+
+
+c<-mlst %>% group_by(mlst) %>% count() %>% filter(n>1)
+mlst$mlst<-ifelse(mlst$mlst %in% c$mlst,mlst$mlst,'other')
+
+
+
+
+
+mlst$mlst<-as.character(mlst$mlst)
+library(ggnewscale)
+p1<-p +new_scale_fill()
+
+library(RColorBrewer)
+mycolors <- colorRampPalette(brewer.pal(9, "Set1"))(10)
+
+p2<-facet_plot(p1,panel="MLST",data=mlst,geom=geom_tile,aes(x=1,fill=mlst)) + scale_fill_manual(values=mycolors,name="MLST")
+
+z<-p2 + new_scale_fill()
+
+
+flanker_output$window=-1*flanker_output$window
+
+p4<-facet_plot(z, panel="Flankergram",data=flanker_output,geom=geom_tile, aes(x=window,fill=group))  + scale_fill_viridis_c(name='Window Cluster')
+
+p5<- p4 + theme_bw() +
+  xlim_tree(0.08) +
+  xlim_expand(c(-5000,0),'Alignment') +
+  xlim_expand(c(-5000,0),'Flankergram') + 
+  theme(axis.text.y = element_blank(),axis.ticks.y = element_blank())
+
+
+y<-select(x,id)
+
+plasmids<-read_tsv('~/oxa48/plasmids') %>% filter(id >=80 & cov >= 80) %>% select(guuid,gene)
+pOXA<-filter(plasmids, gene =='IncL/M(pOXA-48)_1_pOXA-48')
+
+y$`IncL/M(pOXA-48)`<-ifelse(y$id %in% pOXA$guuid,'Present','Absent' )
+
+p<-p4 + new_scale_fill()
+
+y$`IncL/M(pOXA-48)`<-as.factor(y$`IncL/M(pOXA-48)`)
+
+p5<-facet_plot(p,panel='L/M(pOXA-48)-Type',data=y,geom=geom_tile,aes(x=1,fill=`IncL/M(pOXA-48)`)) + scale_fill_manual(values=mycolors)
+
+library(gggenes)
+g<-ggplot(all,aes(xmin=start,xmax=end,y=id,fill=gene,forward=direction)) +
+  geom_gene_arrow() + theme_genes() 
+
+p5<- p5 + theme_bw() +
+  xlim_tree(0.08) +
+  xlim_expand(c(-4900,0),'Alignment') +
+  xlim_expand(c(-4900,0),'Flankergram') + 
+  theme(axis.text.y = element_blank(),axis.ticks.y = element_blank()) +
+  theme(strip.background =element_rect(fill="white"))+
+  theme(strip.text = element_text(colour = 'black'))
+
+
+
+#here we adjust the size of the columns
+library(grid)
+library(gtable)
+
+
+#have to make mlst/flank panels smaller
+gt = ggplot_gtable(ggplot_build(p5))
+gtable_show_layout(gt) # will show you the layout - very handy function
+gt # see plot layout in table format
+gt$layout$l[grep('panel-1-2', gt$layout$name)] # you want to find the column specific to panel-2
+gt$widths[9] = 0.3*gt$widths[9] # in this case it was colmun 7 - reduce the width by a half
+
+
+gt$widths[13] = 0.3*gt$widths[13]
+grid.draw(gt) # plot with grid draw
+
+```
+
+```{r}
+
+kpc_mash<-read_tsv('./kpc/EUSCAPE/KPC_mash')
+
+                    
+meta<-read_tsv('./kpc/EUSCAPE/meta')
+
+kpc_mash<-left_join(kpc_mash,meta,by=c("guuid"="Run accession"))
+                                  
+
+kpc_mash<-filter(kpc_mash,!is.na(Country))
+
+t<-table(kpc_mash$Country,kpc_mash$group)
+fisher.test(t,simulate.p.value = T)
+
+
+
+kpc_mash<-read_tsv('./kpc/EUSCAPE/KPC_mash')
+
+                    
+meta<-read_tsv('./kpc/EUSCAPE/meta')
+
+kpc_mash<-left_join(kpc_mash,meta,by=c("guuid"="Run accession"))
+
+kpc_mash<-filter(kpc_mash,!is.na(kpc_mash$`Meropenem MIC (centralised re-testing)`) & `Meropenem MIC (centralised re-testing)` != 'Not tested')
+
+res<-c('32','>32','16') # EUCAST breakpoint in >8 for mero
+kpc_mash$R<-ifelse(kpc_mash$`Meropenem MIC (centralised re-testing)` %in% res,'R','S')
+
+t<-table(kpc_mash$R,kpc_mash$group)
+fisher.test(t)
+
+tt<-filter(kpc_mash, group=='ENA_CABFYZ010000002_CABFYZ010000002.1_blaKPC-3_1_7200_upstream_flank.fasta' | group=='ENA_CABFZC010000002_CABFZC010000002.1_blaKPC-3_1_7200_downstream_flank.fasta')
+t<-table(tt$group,tt$R)
+fisher.test(t)
+
+oxa_mash<-read_tsv('~/oxa48/OXA_2200_hits') %>% select(guuid,cluster)
+meta<-read_tsv('~/kpc/EUSCAPE/meta')
+oxa_mash<-left_join(oxa_mash,meta,by=c("guuid"="Run accession"))
+table(oxa_mash$cluster)
+t<-oxa_mash<-filter(oxa_mash,!is.na(oxa_mash$`Meropenem MIC (centralised re-testing)`) & `Meropenem MIC (centralised re-testing)` != 'Not tested')
+
+
+
+
+table(oxa_mash$cluster,oxa_mash$`Meropenem MIC (centralised re-testing)`)
+table(oxa_mash$cluster)
+res<-c('32','>32','16')
+oxa_mash$R<-ifelse(oxa_mash$`Meropenem MIC (centralised re-testing)` %in% res,'R','S')
+t<-table(oxa_mash$cluster,oxa_mash$R)
+
+oxa_mash$cluster<-str_replace_all(oxa_mash$cluster,'.fasta','')
+n<-oxa_mash %>% group_by(oxa_mash$`Meropenem MIC (centralised re-testing)`,cluster) %>% count()
+names(n)<-c("mic","cluster","n")
+n$mic<-factor(n$mic,levels=c('≤0.06','0.12','0.25','0.5','1','2','4','8','16','32','>32'))
+
+#here is figure S1
+FigS1<-ggplot(n) +
+  aes(x=cluster,y=mic,size=n) +
+  geom_point() +
+  xlab('Flank Pattern (FP)') +
+  ylab('MIC') + geom_hline(yintercept = 8,linetype='dashed',color='red')
+```
+
+```{r}
+#here we recreate table S2
+flanker_500<-read_csv('./kpc/validation/out_500_blaKPC-3_1_mm')
+flanker_500<-flanker_500 %>% 
+  mutate(assembly_1 = map_chr(assembly_1, function(s) rev(strsplit(s, "_")[[1]])[6])) 
+flanker_5000<-read_csv('./kpc/validation/out_5000_blaKPC-3_1_mm')
+flanker_5000<-flanker_5000 %>% 
+  mutate(assembly_1 = map_chr(assembly_1, function(s) rev(strsplit(s, "_")[[1]])[6])) 
+flanker_output<-kpc_store
+flanker_final<-filter(flanker_output,window==7200) %>% distinct() %>% select(guuid,ID) 
+
+mefinder_500<-read_tsv('./kpc/validation/mefinder_500')
+mefinder_500<-mefinder_500 %>% 
+  mutate(guuid = map_chr(guuid, function(s) rev(strsplit(s, "_")[[1]])[6])) 
+mefinder_5000<-read_tsv('./kpc/validation/mefinder_5000')
+mefinder_5000<-mefinder_5000 %>% 
+  mutate(guuid = map_chr(guuid, function(s) rev(strsplit(s, "_")[[1]])[6])) 
+tt500<-read_tsv('./kpc/validation/TETyper_500.txt') %>% select(guuid,cluster)
+tt5000<-read_tsv('./kpc/validation/TETyper_5000.txt')  %>% select(guuid,cluster)
+tt_all<-read_tsv('./kpc/validation/all_tetyper_full.txt') %>% select(guuid,cluster)
+
+idx <- sapply(tt500$guuid, grep, flanker_500$assembly_1)
+tt500$guuid<-flanker_500$assembly_1[idx]
+
+
+idx <- sapply(tt5000$guuid, grep, flanker_5000$assembly_1)
+tt5000$guuid<-flanker_5000$assembly_1[idx]
+
+
+
+idx <- sapply(tt_all$guuid, grep, flanker_5000$assembly_1)
+tt_all$guuid<-flanker_5000$assembly_1[idx]
+
+
+
+
+all<-left_join(flanker_500,flanker_5000,by=c("assembly_1"="assembly_1")) %>% left_join(flanker_final, by=c("assembly_1"="guuid")) %>% left_join(mefinder_500,by=c("assembly_1"="guuid"))%>% left_join(mefinder_5000,by=c("assembly_1"="guuid")) %>% left_join(tt500,by=c("assembly_1"="guuid")) %>% left_join(tt5000,by=c("assembly_1"="guuid")) %>% left_join(tt_all,by=c("assembly_1"="guuid"))
+
+all<-select(all,-cov,-id)
+
+names(all)<-c("guuid","Flanker 500bp","Flanker 5000bp", "Flanker 7200bp","MEFinder 500bp","MEFinder 5000bp","TETyper 500bp","TETyper 5000bp","TETyper Tn4401 whole")
+
+all[is.na(all)]<-"No hits"
+```
