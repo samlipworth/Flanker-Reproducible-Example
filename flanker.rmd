@@ -242,6 +242,8 @@ grid.draw(gt) # plot with grid draw
 ```
 
 ```{r}
+#clear the env
+rm(list=ls())
 #and we do the same thing (basically) all over again for OXA
 flanker_output<-read_csv('./oxa/all') 
 flanker_output<-flanker_output %>% mutate(window = map_chr(isolate, function(s) rev(strsplit(s, "_")[[1]])[3])) 
@@ -302,7 +304,7 @@ names(flanker_output)<-c('id','window','group','cluster','gene')
 ```{r}
 #make sure all gbk files in your working directory
 filenames<-list.files("./oxa/",pattern="*.gbk",full.names = TRUE)
-filenames<-str_replace_all(filenames,'/home/sam/oxa48//','/home/sam/oxa48/')
+filenames<-str_replace_all(filenames,'./oxa//','./oxa/')
 files<-as.list(filenames)
 
 library(genbankr)
@@ -340,7 +342,7 @@ names(all)<-c('molecule','gene','start','end','strand','direction')
 filenames<-data.frame(filenames)
 filenames<-filenames %>% 
   mutate(isolate = map_chr(filenames, function(s) rev(strsplit(s, "_")[[1]])[6])) 
-filenames$isolate<-str_replace_all(filenames$isolate,'/home/sam/oxa48/','')
+filenames$isolate<-str_replace_all(filenames$isolate,'./oxa/','')
 #filenames$isolate<-str_replace_all(filenames$isolate,'.gbk','')
 filenames<-select(filenames,-filenames)
 filenames$molecule<-paste('g',1:nrow(filenames),sep = '')
@@ -360,7 +362,7 @@ p<-ggtree(tree) +geom_facet(panel = 'Alignment',mapping= aes(xmin=start,xmax=end
 
 
 
-mlst<-read_csv('~/oxa48/mlst.csv')
+mlst<-read_csv('./oxa/mlst.csv')
 
 
 
@@ -475,8 +477,8 @@ tt<-filter(kpc_mash, group=='ENA_CABFYZ010000002_CABFYZ010000002.1_blaKPC-3_1_72
 t<-table(tt$group,tt$R)
 fisher.test(t)
 
-oxa_mash<-read_tsv('~/oxa48/OXA_2200_hits') %>% select(guuid,cluster)
-meta<-read_tsv('~/kpc/EUSCAPE/meta')
+oxa_mash<-read_tsv('./oxa/OXA_2200_hits') %>% select(guuid,cluster)
+meta<-read_tsv('./kpc/EUSCAPE/meta')
 oxa_mash<-left_join(oxa_mash,meta,by=c("guuid"="Run accession"))
 table(oxa_mash$cluster)
 t<-oxa_mash<-filter(oxa_mash,!is.na(oxa_mash$`Meropenem MIC (centralised re-testing)`) & `Meropenem MIC (centralised re-testing)` != 'Not tested')
