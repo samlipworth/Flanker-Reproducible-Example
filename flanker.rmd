@@ -134,8 +134,8 @@ all<-left_join(all,filenames,by=c("molecule"="molecule"))
 all<-select(all,isolate,gene,start,end,strand,direction)
 names(all)<-c('id','gene','start','end','strand','direction')
 
-FP<-filter(flanker_output,window==7200) %>% distinct() %>% select(guuid,ID)
-all<-left_join(all,FP,by=c("id"="guuid"))
+FP<-filter(flanker_output,window==7200) %>% distinct() %>% select(id,cluster)
+all<-left_join(all,FP,by=c("id"="id"))
 all$gene<-ifelse(all$gene=='bla','bla',paste('FP',all$cluster,sep=''))
 
 
