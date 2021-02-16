@@ -13,8 +13,8 @@ COPY . ${HOME}
 ## to the home, overriding any existing files.
 ## Useful to create a setup on binder that is different from a
 ## clone of your repository
-COPY binder ${HOME}
-RUN chown -R ${NB_USER} ${HOME}
+#COPY binder ${HOME}
+#RUN chown -R ${NB_USER} ${HOME}
 
 ## Become normal user again
 USER ${NB_USER}
