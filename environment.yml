@@ -9,7 +9,7 @@ dependencies:
   - r-gtable
   - r-gridgraphics
   - bioconductor-genbankr
-  - r-colorbrewer
+  - r-rcolorbrewer
   - r-ggnewscale
   - r-gggenes
   - r-phytools
