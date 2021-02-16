@@ -1,5 +1,5 @@
 install.packages('tidyverse')
-isntall.packages('ape')
+install.packages('ape')
 install.packages('igraph')
 install.packages('phytools')
 if (!requireNamespace("BiocManager", quietly = TRUE))
