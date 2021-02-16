@@ -3,6 +3,7 @@ channels:
   - bioconda
   - r
 dependencies:
+  - r-base
   - r-ape
   - r-tidyverse
   - r-gtable
