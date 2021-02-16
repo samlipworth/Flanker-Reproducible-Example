@@ -19,4 +19,4 @@ RUN chown -R ${NB_USER} ${HOME}
 USER ${NB_USER}
 
 ## Run an install.R script, if it exists.
-RUN if [ -f environment.yml ]; then R --quiet -f environment.yml; fi
+RUN if [ -f environment.yml ]; then conda env create -f environment.yml; fi
