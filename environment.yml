@@ -1,0 +1,15 @@
+channels:
+  - conda-forge
+  - bioconda
+  - r
+dependencies:
+  - r-ape
+  - r-tidyverse
+  - r-gtable
+  - r-gridgraphics
+  - bioconductor-genbankr
+  - r-colorbrewer
+  - r-ggnewscale
+  - r-gggenes
+  - r-phytools
+  - bioconductor-ggtree
