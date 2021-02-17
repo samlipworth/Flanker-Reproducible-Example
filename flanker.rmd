@@ -5,6 +5,18 @@ date: "26/01/2021"
 output: html_document
 ---
 
+This R markdown script accompanies the manuscript "Flanker: a tool for comparative genomics of gene flanking regions" (Matlock/Lipworth et al 2021).
+Work through the code chunks sequentially - suggest you do not attempt to knit it (I haven't tested this).
+Any issues/questions please email samuel.lipworth@ndm.ox.ac.uk william.matlock@wadham.ox.ac.uk/ twitter @samlipworth @wtmatlock
+
+Essentially we do three things:
+1) take flanker output and classify Flank Patterns (Overall pattern over all window clusters)
+2) plot a mashtree of plasmid assemblies
+3) plot an schematic alignment of genes using gggenes
+
+We then slot all these together in a facet plot and add some info on presence/absence of plasmids as called by Plasmidfinder. 
+
+This should be generally useful for anyone wanting to take Prokka output and plot an alignment against a tree.
 
 ```{r libraries echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
 library(tidyverse)
@@ -15,7 +27,7 @@ library(ggtree)
 
 ```
 
-```{r}
+```{r KPC Flanker}
 #here we take the output from Flanker. the 'all' file is created simply with cat [outprefix e.g. -o out]* | sed '/assembly/d' > all 
 #The add the headers isolate,group to the 'all' csv
 flanker_output<-read_csv('./kpc/all')
@@ -54,7 +66,7 @@ flanker_output<-left_join(flanker_output,gene,by=c("guuid"="guuid"))
 kpc_store<-flanker_output # we'll use this later
 ```
 
-```{r}
+```{r KPC plasmid tree}
 #read in a mashtree of plasmid fastas e.g. mashtree *_plasmid.fasta --outtree tree.tree
 tree<-read.tree('./kpc/tree.tree')
 tree<-midpoint.root(tree)
@@ -82,7 +94,7 @@ mlst<-read_csv('~/kpc/mlst.csv') #%>% select(guuid,mlst)
 
 ```
 
-```{r}
+```{r KPC gene alignemnt}
 #all .gbk files in one directory
 #n.b. if you make these with prokka, you MUST use the --compliant option
 filenames<-list.files("./kpc/",pattern="*.gbk",full.names = TRUE)
@@ -241,7 +253,7 @@ grid.draw(gt) # plot with grid draw
 
 ```
 
-```{r}
+```{r OXA Flanker output}
 #clear the env
 rm(list=ls())
 #and we do the same thing (basically) all over again for OXA
@@ -275,7 +287,7 @@ p0<-ggplot(flanker_output) + aes(x=window,y=interaction(guuid,ID),fill=group) +g
 
 ```
 
-```{r}
+```{r OXA plasmid tree}
 #here should be your mashtree of plasmids
 tree<-read.tree('./oxa/tree.tree')
 tree<-midpoint.root(tree)
@@ -301,7 +313,7 @@ names(flanker_output)<-c('id','window','group','cluster','gene')
 
 ```
 
-```{r}
+```{r OXA gene alignment}
 #make sure all gbk files in your working directory
 filenames<-list.files("./oxa/",pattern="*.gbk",full.names = TRUE)
 filenames<-str_replace_all(filenames,'./oxa//','./oxa/')
@@ -441,7 +453,9 @@ grid.draw(gt) # plot with grid draw
 
 ```
 
-```{r}
+Here we took a single representative member of each flank pattern (FP) and sketched these using Mash (on default settings). We then performed a mash screen against assemblies of all EUSCAPE isolates and assigned these to the top hit - e.g. mash screen FPs.msh file.fasta | sort -gk1 | tail -1
+
+```{r Screen of EUSCAPE short read data}
 
 kpc_mash<-read_tsv('./kpc/EUSCAPE/KPC_mash')
 
@@ -505,7 +519,7 @@ FigS1<-ggplot(n) +
   ylab('MIC') + geom_hline(yintercept = 8,linetype='dashed',color='red')
 ```
 
-```{r}
+```{r Table S2}
 #here we recreate table S2
 flanker_500<-read_csv('./kpc/validation/out_500_blaKPC-3_1_mm')
 flanker_500<-flanker_500 %>% 
@@ -526,6 +540,8 @@ tt500<-read_tsv('./kpc/validation/TETyper_500.txt') %>% select(guuid,cluster)
 tt5000<-read_tsv('./kpc/validation/TETyper_5000.txt')  %>% select(guuid,cluster)
 tt_all<-read_tsv('./kpc/validation/all_tetyper_full.txt') %>% select(guuid,cluster)
 
+#here we match up tetyper output to everything else
+
 idx <- sapply(tt500$guuid, grep, flanker_500$assembly_1)
 tt500$guuid<-flanker_500$assembly_1[idx]
 
@@ -538,6 +554,7 @@ tt5000$guuid<-flanker_5000$assembly_1[idx]
 idx <- sapply(tt_all$guuid, grep, flanker_5000$assembly_1)
 tt_all$guuid<-flanker_5000$assembly_1[idx]
 
+#then we do a left join
 
 
 
