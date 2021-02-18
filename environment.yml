@@ -14,3 +14,4 @@ dependencies:
   - r-phytools
   - bioconductor-ggtree
   - glib
+  - r-kableextra
