@@ -393,7 +393,7 @@ p<-ggtree(tree)
 
 y<-select(x,id)
 
-plasmids<-read_tsv('~/oxa48/plasmids') %>% filter(id >=80 & cov >= 80) %>% select(guuid,gene)
+plasmids<-read_tsv('~/oxa/plasmids') %>% filter(id >=80 & cov >= 80) %>% select(guuid,gene)
 pOXA<-filter(plasmids, gene =='IncL/M(pOXA-48)_1_pOXA-48')
 
 pOXA<-pOXA %>% 
@@ -419,7 +419,7 @@ p3<-p3+new_scale_fill()
 
 p4<-facet_plot(p3, panel="Flankergram",data=flanker_output,geom=geom_tile, aes(x=window,fill=group))  + scale_fill_viridis_c(name='Window Cluster')
 
-mlst<-read_csv('~/oxa48/mlst.csv')
+mlst<-read_csv('~/oxa/mlst.csv')
 c<-mlst %>% group_by(mlst) %>% count() %>% filter(n>1)
 mlst$mlst<-ifelse(mlst$mlst %in% c$mlst,mlst$mlst,'other')
 mlst$mlst<-as.character(mlst$mlst)
